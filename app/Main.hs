@@ -1,11 +1,12 @@
 {-# OPTIONS_GHC -Wno-incomplete-patterns #-}
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+
 module Main (main) where
 
 import Data.List (sortOn)
 import System.Random (mkStdGen, randoms)
 
-data EventType = ReviewEvent | DemandEvent | DeliveryEvent Int deriving (Show)
+data EventType = ReviewEvent | DemandEvent | DeliveryEvent Int
 
 data SimState = SimState
   { time :: Double,
@@ -14,7 +15,6 @@ data SimState = SimState
     backOrderCount :: Int,
     orderCount :: Int
   }
-  deriving (Show)
 
 exponential :: Double -> Double -> Double
 exponential mu u = (-mu) * log (1 - u)
@@ -35,7 +35,7 @@ main = do
   putStrLn $ "orderCount: " ++ (show . orderCount $ endState)
   putStrLn $ "backOrderCount : " ++ (show . backOrderCount $ endState)
   where
-    r : rs = randoms (mkStdGen 42) :: [Double]
+    r : rs = randoms (mkStdGen 8198) :: [Double]
     beginState =
       SimState
         { time = 0,
@@ -45,11 +45,11 @@ main = do
           orderCount = 0
         }
     initialEvents = [(ReviewEvent, 7), (DemandEvent, exponential (2 / 3) r)]
-    endState = simulate rs initialEvents beginState
+    endState = snd . uncurry refill $ simulate rs initialEvents beginState
 
-simulate :: [Double] -> [(EventType, Double)] -> SimState -> SimState
-simulate _ [] s = s
-simulate _ _ s | time s >= 1000 = s
+simulate :: [Double] -> [(EventType, Double)] -> SimState -> ([Double], SimState)
+simulate rand [] s = (rand, s)
+simulate rand _ s | time s >= 1000 = (rand, s)
 simulate rand (e : es) s = simulate rand' (sortOn snd (es ++ es')) s'
   where
     (rand', es', s') = processEvent rand (fst e) (s {time = snd e})
@@ -73,10 +73,15 @@ processEvent (u1 : u2 : us) DemandEvent s
       let backOrdered = max 0 $ purchased - inventory s
           newState =
             s
-              { inventory = max 0 $ inventory s - purchased,
+              { inventory = inventory s - purchased,
                 backOrderCount = backOrderCount s + backOrdered
               }
        in (us, [newDemandEvent], newState)
   where
     purchased = geometric (3 / 4) u1
     newDemandEvent = (DemandEvent, time s + exponential (2 / 3) u2)
+
+refill :: [Double] -> SimState -> ([Double], SimState)
+refill rand@(r : rs) s@SimState {inventory = i, orderCount = o, backOrderCount = b, time = t}
+  | i < inventoryMax = (rs, s {orderCount = o + 1, backOrderCount = b - min 0 i, time = t + exponential 7 r})
+  | otherwise = (rand, s)
